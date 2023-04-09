@@ -15,6 +15,7 @@ public:
     /*thread_number是线程池中线程的数量，max_requests是请求队列中最多允许的、等待处理的请求的数量*/
     threadpool(connection_pool *connPool, int thread_number = 8, int max_request = 10000);
     ~threadpool();
+    //像请求队列中插入任务请求
     bool append(T *request);
 
 private:
@@ -28,7 +29,7 @@ private:
     pthread_t *m_threads;       //描述线程池的数组，其大小为m_thread_number
     std::list<T *> m_workqueue; //请求队列
     locker m_queuelocker;       //保护请求队列的互斥锁
-    sem m_queuestat;            //是否有任务需要处理
+    sem m_queuestat;            //是否有任务需要处理,初始化为0
     bool m_stop;                //是否结束线程
     connection_pool *m_connPool;  //数据库
 };
@@ -37,17 +38,20 @@ threadpool<T>::threadpool( connection_pool *connPool, int thread_number, int max
 {
     if (thread_number <= 0 || max_requests <= 0)
         throw std::exception();
+    //线程ID初始化
     m_threads = new pthread_t[m_thread_number];
     if (!m_threads)
         throw std::exception();
     for (int i = 0; i < thread_number; ++i)
     {
         //printf("create the %dth thread\n",i);
+        //循坏创建线程,并将工作线程按要求进行运行,create时第四个参数是this呀,看看如何发挥作用
         if (pthread_create(m_threads + i, NULL, worker, this) != 0)
         {
             delete[] m_threads;
             throw std::exception();
         }
+        //将线程进行分离后,不再单独对工作线程进行回收
         if (pthread_detach(m_threads[i]))
         {
             delete[] m_threads;
@@ -65,13 +69,16 @@ template <typename T>
 bool threadpool<T>::append(T *request)
 {
     m_queuelocker.lock();
+    //检查是否大于最大设置的值
     if (m_workqueue.size() > m_max_requests)
     {
         m_queuelocker.unlock();
         return false;
     }
+    //添加任务
     m_workqueue.push_back(request);
     m_queuelocker.unlock();
+    //加1,说明可以在里面取一个了
     m_queuestat.post();
     return true;
 }
@@ -87,6 +94,7 @@ void threadpool<T>::run()
 {
     while (!m_stop)
     {
+        //信号量等待
         m_queuestat.wait();
         m_queuelocker.lock();
         if (m_workqueue.empty())
@@ -99,9 +107,9 @@ void threadpool<T>::run()
         m_queuelocker.unlock();
         if (!request)
             continue;
-
+        //将request和连接池中的一个数据库进行连接,并会自动释放
         connectionRAII mysqlcon(&request->mysql, m_connPool);
-        
+        //process(模板类中的方法,这里是http类)进行处理
         request->process();
     }
 }

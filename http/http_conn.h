@@ -24,9 +24,14 @@
 class http_conn
 {
 public:
+    //设置读取文件的名称m_real_file大小
     static const int FILENAME_LEN = 200;
+    //设置读缓冲区m_read_buf的大小
     static const int READ_BUFFER_SIZE = 2048;
+    //设置写缓冲区的大小
     static const int WRITE_BUFFER_SIZE = 1024;
+    //报文的请求方法,本项目只用到GET和POST
+    //enum咋用
     enum METHOD
     {
         GET = 0,
@@ -39,12 +44,14 @@ public:
         CONNECT,
         PATH
     };
+    //主状态机的状态
     enum CHECK_STATE
     {
         CHECK_STATE_REQUESTLINE = 0,
         CHECK_STATE_HEADER,
         CHECK_STATE_CONTENT
     };
+    //报文解析的结果
     enum HTTP_CODE
     {
         NO_REQUEST,
@@ -56,6 +63,7 @@ public:
         INTERNAL_ERROR,
         CLOSED_CONNECTION
     };
+    //从状态机的状态
     enum LINE_STATUS
     {
         LINE_OK = 0,
@@ -68,15 +76,20 @@ public:
     ~http_conn() {}
 
 public:
+    //初始化套接字地址,函数内部会调用私有函数init
     void init(int sockfd, const sockaddr_in &addr);
+    //关闭http连接
     void close_conn(bool real_close = true);
     void process();
+    //读取浏览器端发来的全部数据
     bool read_once();
+    //报文写入函数
     bool write();
     sockaddr_in *get_address()
     {
         return &m_address;
     }
+    //
     void initmysql_result(connection_pool *connPool);
 
 private:

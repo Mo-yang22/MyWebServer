@@ -149,7 +149,7 @@ int main(int argc, char *argv[])
     epoll_event events[MAX_EVENT_NUMBER];
     epollfd = epoll_create(5);
     assert(epollfd != -1);
-
+    //listenfd相当于主线程的监听sock,注意不是一次性的
     addfd(epollfd, listenfd, false);
     http_conn::m_epollfd = epollfd;
 

@@ -66,6 +66,9 @@ int setnonblocking(int fd)
     fcntl(fd, F_SETFL, new_option);
     return old_option;
 }
+/*
+关键函数就是含有EPOLL_CTL_ADD参数的epoll_ctl函数
+*/
 
 //将内核事件表注册读事件，ET模式，选择开启EPOLLONESHOT
 void addfd(int epollfd, int fd, bool one_shot)

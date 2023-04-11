@@ -173,24 +173,35 @@ void http_conn::init()
 //返回值为行的读取状态，有LINE_OK,LINE_BAD,LINE_OPEN
 http_conn::LINE_STATUS http_conn::parse_line()
 {
+    //m_read_idx指向缓冲区m_read_buf的数据末尾的下一个字节
+    //m_checked_idx指向从状态机当前正在分析的字节
     char temp;
     for (; m_checked_idx < m_read_idx; ++m_checked_idx)
     {
+        //temp为将要分析的字节
         temp = m_read_buf[m_checked_idx];
+        //如果当前是\r字符,则有可能会读取到完整行
         if (temp == '\r')
         {
+            //下一个字符达到了buffer结尾,则接收不完整,需要继续接收
             if ((m_checked_idx + 1) == m_read_idx)
                 return LINE_OPEN;
+            //下一个字符是\n,将\r\n改为\0\0,?
             else if (m_read_buf[m_checked_idx + 1] == '\n')
             {
                 m_read_buf[m_checked_idx++] = '\0';
                 m_read_buf[m_checked_idx++] = '\0';
                 return LINE_OK;
             }
+            //如果都不符合,则返回语法错误
             return LINE_BAD;
         }
+
+        //如果当前字符是\n,也有可能读取到完整行
+        //一般是上次读取到\r就到buffer末尾了,没有接收完整,再次接收时会出现这种情况
         else if (temp == '\n')
         {
+            //前一个字符是\r,则接收完整
             if (m_checked_idx > 1 && m_read_buf[m_checked_idx - 1] == '\r')
             {
                 m_read_buf[m_checked_idx - 1] = '\0';
@@ -200,6 +211,7 @@ http_conn::LINE_STATUS http_conn::parse_line()
             return LINE_BAD;
         }
     }
+    //并没有找到\r\n,需要继续接收
     return LINE_OPEN;
 }
 
@@ -247,16 +259,26 @@ bool http_conn::read_once()
     return true;
 #endif
 }
+/*
+主状态机初始状态是CHECK_STATE_REQUESTLINE，
+通过调用从状态机来驱动主状态机，
+在主状态机进行解析前，从状态机已经将每一行的末尾\r\n符号改为\0\0，
+以便于主状态机直接取出对应字符串进行处理。
+*/
 
 //解析http请求行，获得请求方法，目标url及http版本号
 http_conn::HTTP_CODE http_conn::parse_request_line(char *text)
 {
+    //请求行中最先含有空格和\t任一字符的位置并返回
     m_url = strpbrk(text, " \t");
+    //如果没有空格或\t,则报文格式有误
     if (!m_url)
     {
         return BAD_REQUEST;
     }
+    //将该位置改为\0,用于将前面数据取出
     *m_url++ = '\0';
+    //取出数据,并通过与GET和POST比较,以确定请求方式
     char *method = text;
     if (strcasecmp(method, "GET") == 0)
         m_method = GET;
@@ -267,6 +289,7 @@ http_conn::HTTP_CODE http_conn::parse_request_line(char *text)
     }
     else
         return BAD_REQUEST;
+    //strspn函数检索出m_url中不是空格或者\t的首个位置
     m_url += strspn(m_url, " \t");
     m_version = strpbrk(m_url, " \t");
     if (!m_version)
@@ -295,34 +318,48 @@ http_conn::HTTP_CODE http_conn::parse_request_line(char *text)
     m_check_state = CHECK_STATE_HEADER;
     return NO_REQUEST;
 }
+/*
+解析完请求行后，主状态机继续分析请求头。
+在报文中，请求头和空行的处理使用的同一个函数，
+这里通过判断当前的text首位是不是\0字符，
+若是，则表示当前处理的是空行，若不是，则表示当前处理的是请求头。
+*/
 
 //解析http请求的一个头部信息
 http_conn::HTTP_CODE http_conn::parse_headers(char *text)
 {
+    //判断是空行还是请求头
     if (text[0] == '\0')
     {
+        //
         if (m_content_length != 0)
         {
+            //判断是GET还是POST请求
             m_check_state = CHECK_STATE_CONTENT;
             return NO_REQUEST;
         }
         return GET_REQUEST;
     }
+    //解析请求头部连接字段
     else if (strncasecmp(text, "Connection:", 11) == 0)
     {
         text += 11;
+        //跳过空格和\t字符
         text += strspn(text, " \t");
         if (strcasecmp(text, "keep-alive") == 0)
         {
+            //如果是长连接,则将linger标志设置为true
             m_linger = true;
         }
     }
+    //解析请求头部内容长度字段
     else if (strncasecmp(text, "Content-length:", 15) == 0)
     {
         text += 15;
         text += strspn(text, " \t");
         m_content_length = atol(text);
     }
+    //解析请求头部HOST字段
     else if (strncasecmp(text, "Host:", 5) == 0)
     {
         text += 5;
@@ -351,23 +388,29 @@ http_conn::HTTP_CODE http_conn::parse_content(char *text)
     return NO_REQUEST;
 }
 
-//
+//通过while循环，将主从状态机进行封装，对报文的每一行进行循环处理
 http_conn::HTTP_CODE http_conn::process_read()
 {
+    //初始化从状态机状态、HTTP请求解析结果
     LINE_STATUS line_status = LINE_OK;
     HTTP_CODE ret = NO_REQUEST;
     char *text = 0;
 
+    //parse_Line为从状态机的具体实现
     while ((m_check_state == CHECK_STATE_CONTENT && line_status == LINE_OK) || ((line_status = parse_line()) == LINE_OK))
     {
         text = get_line();
+        //m_start_line是每一个数据行在m_read_buf中的读取位置
+        //m_checked_idx是表示从状态机在m_read_buf中开始读取的位置
         m_start_line = m_checked_idx;
         LOG_INFO("%s", text);
         Log::get_instance()->flush();
+        //主状态机的三种状态转移逻辑
         switch (m_check_state)
         {
         case CHECK_STATE_REQUESTLINE:
         {
+            //解析请求行
             ret = parse_request_line(text);
             if (ret == BAD_REQUEST)
                 return BAD_REQUEST;
@@ -375,9 +418,11 @@ http_conn::HTTP_CODE http_conn::process_read()
         }
         case CHECK_STATE_HEADER:
         {
+            //解析请求头
             ret = parse_headers(text);
             if (ret == BAD_REQUEST)
                 return BAD_REQUEST;
+            //完整解析GET请求后,跳转到报文响应函数
             else if (ret == GET_REQUEST)
             {
                 return do_request();
@@ -386,9 +431,12 @@ http_conn::HTTP_CODE http_conn::process_read()
         }
         case CHECK_STATE_CONTENT:
         {
+            //解析消息体
             ret = parse_content(text);
+            //完整解析POST请求后,跳转到报文响应函数
             if (ret == GET_REQUEST)
                 return do_request();
+            //解析完消息体后,就等于完成了报文的解析,避免再次进入循环,更新line_status
             line_status = LINE_OPEN;
             break;
         }
@@ -401,9 +449,11 @@ http_conn::HTTP_CODE http_conn::process_read()
 
 http_conn::HTTP_CODE http_conn::do_request()
 {
+    //将初始化的m_real_file赋值为网站根目录
     strcpy(m_real_file, doc_root);
     int len = strlen(doc_root);
     //printf("m_url:%s\n", m_url);
+    //找到m_url中/的位置
     const char *p = strrchr(m_url, '/');
 
     //处理cgi
@@ -539,6 +589,8 @@ bool http_conn::write()
 {
     int temp = 0;
 
+    //若要发送的数据长度为0
+    //表示响应报文为空,一般不会出现这个情况
     if (bytes_to_send == 0)
     {
         modfd(m_epollfd, m_sockfd, EPOLLIN);
@@ -548,38 +600,50 @@ bool http_conn::write()
 
     while (1)
     {
+        //发
         temp = writev(m_sockfd, m_iv, m_iv_count);
 
         if (temp < 0)
         {
+            //发送缓冲区已经满了,非阻塞IO,要你再尝试一下
             if (errno == EAGAIN)
             {
+                //重新注册写事件
                 modfd(m_epollfd, m_sockfd, EPOLLOUT);
                 return true;
             }
+            //如果发送失败,且不是缓冲区问题,取消映射
             unmap();
             return false;
         }
 
+        //更新已发送字节
         bytes_have_send += temp;
         bytes_to_send -= temp;
+        //第一个iovec头部信息的数据已经发送完,发送第二个iovec数据
         if (bytes_have_send >= m_iv[0].iov_len)
         {
+            //不再发送头部信息
             m_iv[0].iov_len = 0;
+            //更新第二个iovec的地址和长度
             m_iv[1].iov_base = m_file_address + (bytes_have_send - m_write_idx);
             m_iv[1].iov_len = bytes_to_send;
         }
+        //继续发送第一个iovec头部信息的数据
         else
         {
             m_iv[0].iov_base = m_write_buf + bytes_have_send;
             m_iv[0].iov_len = m_iv[0].iov_len - bytes_have_send;
         }
 
+        //判断条件,数据已经全部发送完
         if (bytes_to_send <= 0)
         {
             unmap();
+            //在epoll树上重置事件
             modfd(m_epollfd, m_sockfd, EPOLLIN);
 
+            //浏览器的请求是长连接
             if (m_linger)
             {
                 init();
@@ -592,51 +656,64 @@ bool http_conn::write()
         }
     }
 }
-
+//由下面5个函数调用,更新m_write_idx和写缓冲区中的内容
 bool http_conn::add_response(const char *format, ...)
 {
+    //如果写入内容超过m_write_buf大小就报错
     if (m_write_idx >= WRITE_BUFFER_SIZE)
         return false;
+    //定义可变参数列表
     va_list arg_list;
+    //将变量arg_list初始化为传入的参数
     va_start(arg_list, format);
+    //将数据format从可变参数列表写入缓冲区写,返回写入数据的长度
     int len = vsnprintf(m_write_buf + m_write_idx, WRITE_BUFFER_SIZE - 1 - m_write_idx, format, arg_list);
+    //如果写入的数据长度超过缓冲区剩余空间,则报错
     if (len >= (WRITE_BUFFER_SIZE - 1 - m_write_idx))
     {
         va_end(arg_list);
         return false;
     }
+    //更新m_write_idx位置
     m_write_idx += len;
     va_end(arg_list);
     LOG_INFO("request:%s", m_write_buf);
     Log::get_instance()->flush();
     return true;
 }
+//添加状态行
 bool http_conn::add_status_line(int status, const char *title)
 {
     return add_response("%s %d %s\r\n", "HTTP/1.1", status, title);
 }
+//添加消息报头,具体的添加文本长度,连接状态和空行
 bool http_conn::add_headers(int content_len)
 {
     add_content_length(content_len);
     add_linger();
     add_blank_line();
 }
+//添加Content-length,表示响应报文的长度
 bool http_conn::add_content_length(int content_len)
 {
     return add_response("Content-Length:%d\r\n", content_len);
 }
+//添加文本类型,这里是html
 bool http_conn::add_content_type()
 {
     return add_response("Content-Type:%s\r\n", "text/html");
 }
+//添加连接状态,通知浏览器是保持连接还是关闭
 bool http_conn::add_linger()
 {
     return add_response("Connection:%s\r\n", (m_linger == true) ? "keep-alive" : "close");
 }
+//添加空行
 bool http_conn::add_blank_line()
 {
     return add_response("%s", "\r\n");
 }
+//添加文本content
 bool http_conn::add_content(const char *content)
 {
     return add_response("%s", content);
@@ -645,73 +722,90 @@ bool http_conn::process_write(HTTP_CODE ret)
 {
     switch (ret)
     {
-    case INTERNAL_ERROR:
-    {
-        add_status_line(500, error_500_title);
-        add_headers(strlen(error_500_form));
-        if (!add_content(error_500_form))
-            return false;
-        break;
-    }
-    case BAD_REQUEST:
-    {
-        add_status_line(404, error_404_title);
-        add_headers(strlen(error_404_form));
-        if (!add_content(error_404_form))
-            return false;
-        break;
-    }
-    case FORBIDDEN_REQUEST:
-    {
-        add_status_line(403, error_403_title);
-        add_headers(strlen(error_403_form));
-        if (!add_content(error_403_form))
-            return false;
-        break;
-    }
-    case FILE_REQUEST:
-    {
-        add_status_line(200, ok_200_title);
-        if (m_file_stat.st_size != 0)
+        //内部错误,500
+        case INTERNAL_ERROR:
         {
-            add_headers(m_file_stat.st_size);
-            m_iv[0].iov_base = m_write_buf;
-            m_iv[0].iov_len = m_write_idx;
-            m_iv[1].iov_base = m_file_address;
-            m_iv[1].iov_len = m_file_stat.st_size;
-            m_iv_count = 2;
-            bytes_to_send = m_write_idx + m_file_stat.st_size;
-            return true;
-        }
-        else
-        {
-            const char *ok_string = "<html><body></body></html>";
-            add_headers(strlen(ok_string));
-            if (!add_content(ok_string))
+            add_status_line(500, error_500_title);
+            add_headers(strlen(error_500_form));
+            if (!add_content(error_500_form))
                 return false;
+            break;
         }
+        //报文语法有误,404
+        case BAD_REQUEST:
+        {
+            add_status_line(404, error_404_title);
+            add_headers(strlen(error_404_form));
+            if (!add_content(error_404_form))
+                return false;
+            break;
+        }
+        //资源没有访问权限,403
+        case FORBIDDEN_REQUEST:
+        {
+            add_status_line(403, error_403_title);
+            add_headers(strlen(error_403_form));
+            if (!add_content(error_403_form))
+                return false;
+            break;
+        }
+        //文件存在,200
+        case FILE_REQUEST:
+        {
+            add_status_line(200, ok_200_title);
+            //如果请求的资源存在
+            if (m_file_stat.st_size != 0)
+            {
+                add_headers(m_file_stat.st_size);
+                //第一个iovec指针指向响应报文缓冲区,长度指向m_write_idx
+                m_iv[0].iov_base = m_write_buf;
+                m_iv[0].iov_len = m_write_idx;
+                //第二个iovec指针指向mmap返回的文件指针,长度指向文件大小
+                m_iv[1].iov_base = m_file_address;
+                m_iv[1].iov_len = m_file_stat.st_size;
+                m_iv_count = 2;
+                //发送的全部数据为响应报文头部信息和文件大小
+                bytes_to_send = m_write_idx + m_file_stat.st_size;
+                return true;
+            }
+            else
+            {
+                //如果请求的资源大小为0,则返回空白html文件
+                const char *ok_string = "<html><body></body></html>";
+                add_headers(strlen(ok_string));
+                //正常情况没有return,放在下面return
+                if (!add_content(ok_string))
+                    return false;
+            }
+        }
+        default:
+            return false;
     }
-    default:
-        return false;
-    }
+    //除FILE_REQUEST状态外,其余状态只申请一个iovec,指向响应报文缓冲区
     m_iv[0].iov_base = m_write_buf;
     m_iv[0].iov_len = m_write_idx;
     m_iv_count = 1;
     bytes_to_send = m_write_idx;
     return true;
 }
+//各子线程调用process函数对任务进行处理
 void http_conn::process()
 {
+    //调用process_read完成报文解析
     HTTP_CODE read_ret = process_read();
+    //NO_REQUEST，表示请求不完整，需要继续接收请求数据
     if (read_ret == NO_REQUEST)
     {
+        //注册并监听读事件
         modfd(m_epollfd, m_sockfd, EPOLLIN);
         return;
     }
+    //调用process_write完成报文响应
     bool write_ret = process_write(read_ret);
     if (!write_ret)
     {
         close_conn();
     }
+    //注册并监听读事件
     modfd(m_epollfd, m_sockfd, EPOLLOUT);
 }

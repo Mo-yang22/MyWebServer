@@ -117,7 +117,7 @@ int main(int argc, char *argv[])
     {
         return 1;
     }
-
+    //创建MAX_FD个http类对象
     http_conn *users = new http_conn[MAX_FD];
     assert(users);
 
@@ -176,7 +176,7 @@ int main(int argc, char *argv[])
             LOG_ERROR("%s", "epoll failure");
             break;
         }
-
+        //对所有就绪事件进行处理
         for (int i = 0; i < number; i++)
         {
             int sockfd = events[i].data.fd;

@@ -20,6 +20,7 @@ public:
 
 private:
     /*工作线程运行的函数，它不断从工作队列中取出任务并执行之*/
+    //必须为静态成员函数
     static void *worker(void *arg);
     void run();
 
@@ -82,6 +83,7 @@ bool threadpool<T>::append(T *request)
     m_queuestat.post();
     return true;
 }
+//返回值有什么用
 template <typename T>
 void *threadpool<T>::worker(void *arg)
 {

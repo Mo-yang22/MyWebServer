@@ -141,7 +141,7 @@ private:
     char m_write_buf[WRITE_BUFFER_SIZE];
     //指示buffer中的长度,最后一个字节的下一个位置
     int m_write_idx;
-    //主状态机的状态
+    //主状态机的状态,初始化为CHECK_STATE_REQUESTLINE
     CHECK_STATE m_check_state;
     //请求方法
     METHOD m_method;

@@ -171,6 +171,10 @@ void http_conn::init()
     memset(m_write_buf, '\0', WRITE_BUFFER_SIZE);
     memset(m_real_file, '\0', FILENAME_LEN);
 }
+/*
+关键是找到\r\n,\r\n前面的内容为1行,这一行的末尾是
+m_check_idx,起始是m_start_line.
+*/
 
 //从状态机，用于分析出一行内容
 //返回值为行的读取状态，有LINE_OK,LINE_BAD,LINE_OPEN
@@ -186,7 +190,7 @@ http_conn::LINE_STATUS http_conn::parse_line()
         //如果当前是\r字符,则有可能会读取到完整行
         if (temp == '\r')
         {
-            //下一个字符达到了buffer结尾,则接收不完整,需要继续接收
+            //下一个字符达到了buffer结尾,则接收不完整,需要继续接收,咋接收呀?
             if ((m_checked_idx + 1) == m_read_idx)
                 return LINE_OPEN;
             //下一个字符是\n,将\r\n改为\0\0,?
@@ -273,6 +277,8 @@ bool http_conn::read_once()
 http_conn::HTTP_CODE http_conn::parse_request_line(char *text)
 {
     //请求行中最先含有空格和\t任一字符的位置并返回
+    //string point break
+    //because it returns a pointer to the first of the separator(break) characters
     m_url = strpbrk(text, " \t");
     //如果没有空格或\t,则报文格式有误
     if (!m_url)
@@ -293,6 +299,7 @@ http_conn::HTTP_CODE http_conn::parse_request_line(char *text)
     else
         return BAD_REQUEST;
     //strspn函数检索出m_url中不是空格或者\t的首个位置
+    //这句话的作用可以认为是跳过空格和\t
     m_url += strspn(m_url, " \t");
     m_version = strpbrk(m_url, " \t");
     if (!m_version)
@@ -304,6 +311,7 @@ http_conn::HTTP_CODE http_conn::parse_request_line(char *text)
     if (strncasecmp(m_url, "http://", 7) == 0)
     {
         m_url += 7;
+        //strchr 返回m_url中第一次出现'/'的位置,找不到返回NULL
         m_url = strchr(m_url, '/');
     }
 
@@ -317,8 +325,11 @@ http_conn::HTTP_CODE http_conn::parse_request_line(char *text)
         return BAD_REQUEST;
     //当url为/时，显示判断界面
     if (strlen(m_url) == 1)
+        //把judge.html加入到m_url后面,即假如你啥也不输,跳转到这个页面
         strcat(m_url, "judge.html");
+    //状态转移
     m_check_state = CHECK_STATE_HEADER;
+    //正常的返回是请求不完整,才解析了请求行,肯定不完整.
     return NO_REQUEST;
 }
 /*
@@ -334,13 +345,15 @@ http_conn::HTTP_CODE http_conn::parse_headers(char *text)
     //判断是空行还是请求头
     if (text[0] == '\0')
     {
-        //
+        //判断是GET还是POST请求
         if (m_content_length != 0)
         {
-            //判断是GET还是POST请求
+            //POST需要跳转到消息体处理状态
+            //只有在这里才实现状态的转变,
             m_check_state = CHECK_STATE_CONTENT;
             return NO_REQUEST;
         }
+        //是GET请求,报文解析完毕
         return GET_REQUEST;
     }
     //解析请求头部连接字段
@@ -400,6 +413,7 @@ http_conn::HTTP_CODE http_conn::process_read()
     char *text = 0;
 
     //parse_Line为从状态机的具体实现
+    //一次性只解析一行,会有多次出现CHECK_STATE_HEADER
     while ((m_check_state == CHECK_STATE_CONTENT && line_status == LINE_OK) || ((line_status = parse_line()) == LINE_OK))
     {
         text = get_line();

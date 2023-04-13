@@ -403,9 +403,6 @@ http_conn::HTTP_CODE http_conn::parse_content(char *text)
     }
     return NO_REQUEST;
 }
-/*
-正常的返回是返回do_request的返回结果
-*/
 
 //通过while循环，将主从状态机进行封装，对报文的每一行进行循环处理
 http_conn::HTTP_CODE http_conn::process_read()
@@ -541,7 +538,7 @@ http_conn::HTTP_CODE http_conn::do_request()
                 strcpy(m_url, "/logError.html");
         }
     }
-    //如果请求资源为/0，表示跳转注册界面
+
     if (*(p + 1) == '0')
     {
         char *m_url_real = (char *)malloc(sizeof(char) * 200);
@@ -591,12 +588,9 @@ http_conn::HTTP_CODE http_conn::do_request()
         return FORBIDDEN_REQUEST;
     if (S_ISDIR(m_file_stat.st_mode))
         return BAD_REQUEST;
-    // 以只读的方式获取文件描述符，通过mmap将该文件映射到内存中
     int fd = open(m_real_file, O_RDONLY);
     m_file_address = (char *)mmap(0, m_file_stat.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
-    //mmap完了就可以把fd关闭了，避免文件描述符的浪费
     close(fd);
-    //表示请求文件存在，且可以访问
     return FILE_REQUEST;
 }
 void http_conn::unmap()
@@ -741,14 +735,6 @@ bool http_conn::add_content(const char *content)
 {
     return add_response("%s", content);
 }
-/*
-响应报文分为两种，
-一种是请求文件的存在，通过io向量机制iovec，
-声明两个iovec，第一个指向m_write_buf，第二个指向mmap的地址m_file_address；
-一种是请求出错，这时候只申请一个iovec，指向m_write_buf。
-*/
-//返回值若为false,就要在process函数中关闭连接了
-//完成的任务是生成相应报文,生成的内容在write_buf里
 bool http_conn::process_write(HTTP_CODE ret)
 {
     switch (ret)

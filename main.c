@@ -36,12 +36,19 @@ static int pipefd[2];
 static sort_timer_lst timer_lst;
 static int epollfd = 0;
 
+/*
+信号处理函数中仅仅通过管道发送信号值,不处理信号对应的逻辑,缩短异步执行时
+减少对主程序的影响
+*/
+
 //信号处理函数
 void sig_handler(int sig)
 {
     //为保证函数的可重入性，保留原来的errno
+    //可重入性表示中断后再次进入该函数,环境变量与之前的相同,不会丢失数据
     int save_errno = errno;
     int msg = sig;
+    //将信号值从管道写端写入,传输字符类型,而非整型
     send(pipefd[1], (char *)&msg, 1, 0);
     errno = save_errno;
 }
@@ -54,7 +61,9 @@ void addsig(int sig, void(handler)(int), bool restart = true)
     sa.sa_handler = handler;
     if (restart)
         sa.sa_flags |= SA_RESTART;
+    //将所有的信号添加到信号集中
     sigfillset(&sa.sa_mask);
+    //执行sigaction函数
     assert(sigaction(sig, &sa, NULL) != -1);
 }
 
@@ -68,9 +77,12 @@ void timer_handler()
 //定时器回调函数，删除非活动连接在socket上的注册事件，并关闭
 void cb_func(client_data *user_data)
 {
+    //删除非活动连接在socket上的注册事件
     epoll_ctl(epollfd, EPOLL_CTL_DEL, user_data->sockfd, 0);
     assert(user_data);
+    //关闭文件描述符
     close(user_data->sockfd);
+    //减少连接数
     http_conn::m_user_count--;
     LOG_INFO("close fd %d", user_data->sockfd);
     Log::get_instance()->flush();
@@ -149,27 +161,36 @@ int main(int argc, char *argv[])
     epoll_event events[MAX_EVENT_NUMBER];
     epollfd = epoll_create(5);
     assert(epollfd != -1);
-
+    //listenfd相当于主线程的监听sock,注意不是一次性的
     addfd(epollfd, listenfd, false);
     http_conn::m_epollfd = epollfd;
 
     //创建管道
     ret = socketpair(PF_UNIX, SOCK_STREAM, 0, pipefd);
     assert(ret != -1);
+    //设置管道写端为非阻塞,为什么写端要非阻塞?
     setnonblocking(pipefd[1]);
+    //设置管道读端为ET非阻塞,且不是一次性的
     addfd(epollfd, pipefd[0], false);
 
+    //只关注SIGALRM和SIGTERM
     addsig(SIGALRM, sig_handler, false);
     addsig(SIGTERM, sig_handler, false);
+
+    //循环条件
     bool stop_server = false;
 
+    //为每一个文件描述符创建一个client_data
     client_data *users_timer = new client_data[MAX_FD];
 
+    //超时标志
     bool timeout = false;
+    //每隔TIMESLOT秒触发SIRALRM信号
     alarm(TIMESLOT);
 
     while (!stop_server)
     {
+        //监测发生事件的文件描述符
         int number = epoll_wait(epollfd, events, MAX_EVENT_NUMBER, -1);
         if (number < 0 && errno != EINTR)
         {
@@ -187,6 +208,7 @@ int main(int argc, char *argv[])
                 struct sockaddr_in client_address;
                 socklen_t client_addrlength = sizeof(client_address);
 #ifdef listenfdLT
+                //该连接分配的文件描述符
                 int connfd = accept(listenfd, (struct sockaddr *)&client_address, &client_addrlength);
                 if (connfd < 0)
                 {
@@ -201,16 +223,25 @@ int main(int argc, char *argv[])
                 }
                 users[connfd].init(connfd, client_address);
 
+
+                //下面代码的目的，设置users_timer[connfd],以及将定时器插入链表
                 //初始化client_data数据
                 //创建定时器，设置回调函数和超时时间，绑定用户数据，将定时器添加到链表中
                 users_timer[connfd].address = client_address;
                 users_timer[connfd].sockfd = connfd;
+                //创建定时器临时变量
                 util_timer *timer = new util_timer;
+                //设置定时器对应的连接资源
                 timer->user_data = &users_timer[connfd];
+                //设置回调函数
                 timer->cb_func = cb_func;
+                //获取当前时间
                 time_t cur = time(NULL);
+                //设置绝对超时时间
                 timer->expire = cur + 3 * TIMESLOT;
+                //将定时器赋予给连接资源
                 users_timer[connfd].timer = timer;
+                //将该定时器添加到链表中
                 timer_lst.add_timer(timer);
 #endif
 
@@ -275,6 +306,8 @@ int main(int argc, char *argv[])
                 }
                 else
                 {
+                    //处理信号值对应的逻辑
+                    //可能要处理多个信号
                     for (int i = 0; i < ret; ++i)
                     {
                         switch (signals[i])
@@ -296,6 +329,7 @@ int main(int argc, char *argv[])
             //处理客户连接上接收到的数据
             else if (events[i].events & EPOLLIN)
             {
+                //创建定时器临时变量,将该连接对应的定时器取出来
                 util_timer *timer = users_timer[sockfd].timer;
                 if (users[sockfd].read_once())
                 {
@@ -353,6 +387,7 @@ int main(int argc, char *argv[])
                 }
             }
         }
+        //timeout在超时的处理那里赋值为true
         if (timeout)
         {
             timer_handler();

@@ -25,23 +25,28 @@ bool Log::init(const char *file_name, int log_buf_size, int split_lines, int max
     //如果设置了max_queue_size,则设置为异步
     if (max_queue_size >= 1)
     {
+        //设置写入方式flag
         m_is_async = true;
+        //创建并设置阻塞队列长度
         m_log_queue = new block_queue<string>(max_queue_size);
         pthread_t tid;
         //flush_log_thread为回调函数,这里表示创建线程异步写日志
         pthread_create(&tid, NULL, flush_log_thread, NULL);
     }
 
+    //输出内容的长度
     m_log_buf_size = log_buf_size;
     m_buf = new char[m_log_buf_size];
     memset(m_buf, '\0', m_log_buf_size);
+
+    //日志的最大行数
     m_split_lines = split_lines;
 
     time_t t = time(NULL);
     struct tm *sys_tm = localtime(&t);
     struct tm my_tm = *sys_tm;
 
- 
+    //从后往前找到第一个/的位置
     const char *p = strrchr(file_name, '/');
     char log_full_name[256] = {0};
 

@@ -13,10 +13,17 @@
 #include "../lock/locker.h"
 using namespace std;
 
+
+//自定义队列
+//当队列为空时，从队列中获取元素的线程将会被挂起；当队列是满时，往队列中添加元素的线程将会被挂起
+//用循环数组实现
+//从back加，从front取，front的下一个位置存有第一个值，back的当前位置存有最后一个值
+
 template <class T>
 class block_queue
 {
 public:
+    //构造函数
     block_queue(int max_size = 1000)
     {
         if (max_size <= 0)
@@ -24,6 +31,7 @@ public:
             exit(-1);
         }
 
+        //locker和cond有自己的构造函数
         m_max_size = max_size;
         m_array = new T[max_size];
         m_size = 0;
@@ -31,6 +39,7 @@ public:
         m_back = -1;
     }
 
+    //清空队列
     void clear()
     {
         m_mutex.lock();
@@ -40,6 +49,7 @@ public:
         m_mutex.unlock();
     }
 
+    //析构函数
     ~block_queue()
     {
         m_mutex.lock();
@@ -136,6 +146,7 @@ public:
             return false;
         }
 
+        //将新增数据放在循环数组的对应位置
         m_back = (m_back + 1) % m_max_size;
         m_array[m_back] = item;
 

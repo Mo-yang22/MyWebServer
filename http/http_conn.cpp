@@ -429,6 +429,7 @@ http_conn::HTTP_CODE http_conn::process_read()
         case CHECK_STATE_REQUESTLINE:
         {
             //解析请求行
+            //可能在下面这行完成状态转变
             ret = parse_request_line(text);
             if (ret == BAD_REQUEST)
                 return BAD_REQUEST;
@@ -437,6 +438,7 @@ http_conn::HTTP_CODE http_conn::process_read()
         case CHECK_STATE_HEADER:
         {
             //解析请求头
+            //可能在下面这一行完成状态转变
             ret = parse_headers(text);
             if (ret == BAD_REQUEST)
                 return BAD_REQUEST;

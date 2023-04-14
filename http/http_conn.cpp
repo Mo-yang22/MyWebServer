@@ -95,6 +95,7 @@ void addfd(int epollfd, int fd, bool one_shot)
     if (one_shot)
         event.events |= EPOLLONESHOT;
     epoll_ctl(epollfd, EPOLL_CTL_ADD, fd, &event);
+    //addfd内部也有将fd设置为非阻塞
     setnonblocking(fd);
 }
 

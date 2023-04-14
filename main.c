@@ -180,6 +180,7 @@ int main(int argc, char *argv[])
     //循环条件
     bool stop_server = false;
 
+    //为每一个文件描述符创建一个client_data
     client_data *users_timer = new client_data[MAX_FD];
 
     //超时标志
@@ -222,6 +223,8 @@ int main(int argc, char *argv[])
                 }
                 users[connfd].init(connfd, client_address);
 
+
+                //下面代码的目的，设置users_timer[connfd],以及将定时器插入链表
                 //初始化client_data数据
                 //创建定时器，设置回调函数和超时时间，绑定用户数据，将定时器添加到链表中
                 users_timer[connfd].address = client_address;

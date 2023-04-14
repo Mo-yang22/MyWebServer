@@ -738,6 +738,9 @@ bool http_conn::add_content(const char *content)
 {
     return add_response("%s", content);
 }
+
+//注意返回值，返回的结果表示是否写成功
+//当返回false时，process就要关闭连接了
 bool http_conn::process_write(HTTP_CODE ret)
 {
     switch (ret)
@@ -826,6 +829,6 @@ void http_conn::process()
     {
         close_conn();
     }
-    //注册并监听读事件
+    //注册并监听写事件
     modfd(m_epollfd, m_sockfd, EPOLLOUT);
 }

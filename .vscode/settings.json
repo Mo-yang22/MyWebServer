@@ -11,6 +11,9 @@
         "sstream": "cpp",
         "streambuf": "cpp",
         "memory_resource": "cpp",
-        "chrono": "cpp"
+        "chrono": "cpp",
+        "unordered_map": "cpp",
+        "istream": "cpp",
+        "numeric": "cpp"
     }
 }

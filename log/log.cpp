@@ -19,6 +19,7 @@ Log::~Log()
         fclose(m_fp);
     }
 }
+//init函数实现日志创建、写入方式的判断
 //异步需要设置阻塞队列的长度，同步不需要设置
 bool Log::init(const char *file_name, int log_buf_size, int split_lines, int max_queue_size)
 {
@@ -30,7 +31,7 @@ bool Log::init(const char *file_name, int log_buf_size, int split_lines, int max
         //创建并设置阻塞队列长度
         m_log_queue = new block_queue<string>(max_queue_size);
         pthread_t tid;
-        //flush_log_thread为回调函数,这里表示创建线程异步写日志
+        //flush_log_thread为回调函数,这里表示创建线程异步写日志？
         pthread_create(&tid, NULL, flush_log_thread, NULL);
     }
 
@@ -49,13 +50,19 @@ bool Log::init(const char *file_name, int log_buf_size, int split_lines, int max
     //从后往前找到第一个/的位置
     const char *p = strrchr(file_name, '/');
     char log_full_name[256] = {0};
-
+    
+    //log_full_name是log文件的名字(可能包括路径名)
+    //当file_name中不存在/时,说明在当前目前打开(或者新建)文件,文件名的格式就是时间+file_name(log_name)
+    //存在时就是dir_name+时间+log_time
     if (p == NULL)
     {
+        //后面的参数跟format有关
         snprintf(log_full_name, 255, "%d_%02d_%02d_%s", my_tm.tm_year + 1900, my_tm.tm_mon + 1, my_tm.tm_mday, file_name);
     }
     else
     {
+        //将/的位置向后移动一个位置，然后复制到logname中
+        //再把文件所在路径文件夹的名字复制到dir_name中去
         strcpy(log_name, p + 1);
         strncpy(dir_name, file_name, p - file_name + 1);
         snprintf(log_full_name, 255, "%s%d_%02d_%02d_%s", dir_name, my_tm.tm_year + 1900, my_tm.tm_mon + 1, my_tm.tm_mday, log_name);
@@ -63,6 +70,7 @@ bool Log::init(const char *file_name, int log_buf_size, int split_lines, int max
 
     m_today = my_tm.tm_mday;
 
+    //a以附加的方式打开只写文件,若文件不存在,则会建立该文件.
     m_fp = fopen(log_full_name, "a");
     if (m_fp == NULL)
     {
@@ -102,6 +110,8 @@ void Log::write_log(int level, const char *format, ...)
     m_mutex.lock();
     m_count++;
 
+
+    //日志不是今天或写入的日志行数是最大行的倍数
     if (m_today != my_tm.tm_mday || m_count % m_split_lines == 0) //everyday log
     {
         
@@ -109,9 +119,9 @@ void Log::write_log(int level, const char *format, ...)
         fflush(m_fp);
         fclose(m_fp);
         char tail[16] = {0};
-       
+       //格式化日志名中的时间部分
         snprintf(tail, 16, "%d_%02d_%02d_", my_tm.tm_year + 1900, my_tm.tm_mon + 1, my_tm.tm_mday);
-       
+       //如果时间不是今天,则创建今天的日志,更新 m_today 和m_count
         if (m_today != my_tm.tm_mday)
         {
             snprintf(new_log, 255, "%s%s%s", dir_name, tail, log_name);
@@ -120,6 +130,8 @@ void Log::write_log(int level, const char *format, ...)
         }
         else
         {
+            //超过了最大行,在当前日志的末尾加上count/m_split_line为后缀创建新log
+            //注意这种情况下m_count是不归0的
             snprintf(new_log, 255, "%s%s%s.%lld", dir_name, tail, log_name, m_count / m_split_lines);
         }
         m_fp = fopen(new_log, "a");
@@ -134,10 +146,12 @@ void Log::write_log(int level, const char *format, ...)
     m_mutex.lock();
 
     //写入的具体时间内容格式
+    //时间格式化,snprintf成功返回写字符的总数,其中不包含结尾的null字符
+    //s是等级
     int n = snprintf(m_buf, 48, "%d-%02d-%02d %02d:%02d:%02d.%06ld %s ",
                      my_tm.tm_year + 1900, my_tm.tm_mon + 1, my_tm.tm_mday,
                      my_tm.tm_hour, my_tm.tm_min, my_tm.tm_sec, now.tv_usec, s);
-    
+    //内容格式化,用于向字符串中打印数据.数据格式用户自定义,返回写入到字符数组中的字符数
     int m = vsnprintf(m_buf + n, m_log_buf_size - 1, format, valst);
     m_buf[n + m] = '\n';
     m_buf[n + m + 1] = '\0';
@@ -145,6 +159,7 @@ void Log::write_log(int level, const char *format, ...)
 
     m_mutex.unlock();
 
+    //若异步,则将日志信息加入阻塞队列,同步则加锁向文件中写
     if (m_is_async && !m_log_queue->full())
     {
         m_log_queue->push(log_str);

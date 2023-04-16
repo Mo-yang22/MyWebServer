@@ -147,7 +147,7 @@ private:
     METHOD m_method;
 
     //以下为解析请求报文中对应的6个变量
-    char m_real_file[FILENAME_LEN];
+    char m_real_file[FILENAME_LEN];//本地文件的存储路径
     char *m_url;
     char *m_version;
     char *m_host;

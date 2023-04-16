@@ -12,6 +12,7 @@
 
 using namespace std;
 
+//可以认为 MYSQL*就是一个连接
 class connection_pool
 {
 public:

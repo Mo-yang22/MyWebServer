@@ -473,14 +473,14 @@ http_conn::HTTP_CODE http_conn::do_request()
     strcpy(m_real_file, doc_root);
     int len = strlen(doc_root);
     //printf("m_url:%s\n", m_url);
-    //找到m_url中/的位置
+    //m_url中/最后出现的位置
     const char *p = strrchr(m_url, '/');
 
     //处理cgi
     if (cgi == 1 && (*(p + 1) == '2' || *(p + 1) == '3'))
     {
 
-        //根据标志判断是登录检测还是注册检测
+        //根据标志判断是登录检测还是注册检测，这个标志没啥用呀
         char flag = m_url[1];
 
         char *m_url_real = (char *)malloc(sizeof(char) * 200);
@@ -493,10 +493,13 @@ http_conn::HTTP_CODE http_conn::do_request()
         //user=123&passwd=123
         char name[100], password[100];
         int i;
+        
+        //以&为分隔符，前面的为用户名
         for (i = 5; m_string[i] != '&'; ++i)
             name[i - 5] = m_string[i];
         name[i - 5] = '\0';
 
+        //以&为分隔符，后面的是密码
         int j = 0;
         for (i = i + 10; m_string[i] != '\0'; ++i, ++j)
             password[j] = m_string[i];
@@ -508,6 +511,8 @@ http_conn::HTTP_CODE http_conn::do_request()
             //如果是注册，先检测数据库中是否有重名的
             //没有重名的，进行增加数据
             char *sql_insert = (char *)malloc(sizeof(char) * 200);
+
+            //生成sql语句
             strcpy(sql_insert, "INSERT INTO user(username, passwd) VALUES(");
             strcat(sql_insert, "'");
             strcat(sql_insert, name);
@@ -515,19 +520,24 @@ http_conn::HTTP_CODE http_conn::do_request()
             strcat(sql_insert, password);
             strcat(sql_insert, "')");
 
+            //判断map中能否找到重复的用户名
+            //不能
             if (users.find(name) == users.end())
             {
-
+                //向数据库中插入数据时，需要通过锁来同步数据
                 m_lock.lock();
                 int res = mysql_query(mysql, sql_insert);
                 users.insert(pair<string, string>(name, password));
                 m_lock.unlock();
 
+                //校验成功，跳转登录界面
                 if (!res)
                     strcpy(m_url, "/log.html");
+                //检验失败，跳转注册失败页面
                 else
                     strcpy(m_url, "/registerError.html");
             }
+            //能找到重复的用户名，直接跳转注册失败页面
             else
                 strcpy(m_url, "/registerError.html");
         }
@@ -542,6 +552,7 @@ http_conn::HTTP_CODE http_conn::do_request()
         }
     }
 
+    //注册页面
     if (*(p + 1) == '0')
     {
         char *m_url_real = (char *)malloc(sizeof(char) * 200);
@@ -550,6 +561,7 @@ http_conn::HTTP_CODE http_conn::do_request()
 
         free(m_url_real);
     }
+    //登录页面
     else if (*(p + 1) == '1')
     {
         char *m_url_real = (char *)malloc(sizeof(char) * 200);
@@ -558,6 +570,7 @@ http_conn::HTTP_CODE http_conn::do_request()
 
         free(m_url_real);
     }
+    //图片页面
     else if (*(p + 1) == '5')
     {
         char *m_url_real = (char *)malloc(sizeof(char) * 200);
@@ -566,6 +579,7 @@ http_conn::HTTP_CODE http_conn::do_request()
 
         free(m_url_real);
     }
+    //视频页面
     else if (*(p + 1) == '6')
     {
         char *m_url_real = (char *)malloc(sizeof(char) * 200);
@@ -574,6 +588,7 @@ http_conn::HTTP_CODE http_conn::do_request()
 
         free(m_url_real);
     }
+    //关注页面
     else if (*(p + 1) == '7')
     {
         char *m_url_real = (char *)malloc(sizeof(char) * 200);
@@ -582,6 +597,7 @@ http_conn::HTTP_CODE http_conn::do_request()
 
         free(m_url_real);
     }
+    //否则发送url实际请求的文件
     else
         strncpy(m_real_file + len, m_url, FILENAME_LEN - len - 1);
 

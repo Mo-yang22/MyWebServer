@@ -180,8 +180,6 @@ int main(int argc, char *argv[])
     //循环条件
     bool stop_server = false;
 
-    //为每一个文件描述符创建一个client_data
-    client_data *users_timer = new client_data[MAX_FD];
 
     //超时标志
     bool timeout = false;
@@ -399,7 +397,6 @@ int main(int argc, char *argv[])
     close(pipefd[1]);
     close(pipefd[0]);
     delete[] users;
-    delete[] users_timer;
     delete pool;
     return 0;
 }
